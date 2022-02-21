@@ -116,8 +116,8 @@ class LRUKnn:
         #    gc.collect()
 
     def update_kdtree(self):
-        # if self.curr_capacity == 0:
-        #     return
+        if self.curr_capacity == 0:
+            return
         if self.build_tree:
             del self.tree
         self.tree = KDTree(self.states[:self.curr_capacity])

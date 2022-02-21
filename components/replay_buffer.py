@@ -52,22 +52,17 @@ class ReplayBuffer:
 
     def sample(self, batch_size):
         """Sample a batch of experiences.
-        Parameters
-        ----------
-        batch_size: int
-            How many transitions to sample.
         Returns
         -------
-        obs_batch: np.array
+        o: np.array [batch_size, obs_shape]
             batch of observations
-        act_batch: np.array
-            batch of actions executed given obs_batch
-        rew_batch: np.array
-            rewards received as results of executing act_batch
-        next_obs_batch: np.array
-            next set of observations seen after executing act_batch
-        done_mask: np.array
-            done_mask[i] = 1 if executing act_batch[i] resulted in
+        u: np.array [batch_size, action_dim (1)]
+            batch of actions executed given obs
+        r: np.array [batch_size,]
+            rewards received as results of executing action
+        o_next: np.array [batch_size, obs_shape]
+            next set of observations seen after executing action
+        terminates: np.array [batch_size,]
             the end of an episode and 0 otherwise.
         """
         idxes = [random.randint(0, len(self._storage) - 1) for _ in range(batch_size)]
