@@ -26,7 +26,7 @@ The users can modify the code to suit your own testing environments (`DISCREATE 
 * The off-policy replay buffer: `./components/replay_buffer.py`
 * The Hyper-parameters can be modified in: `./components/arguments.py`
 * I only give a simple env to test the performance. I suggest a refined set of parameters when using the code.
-The details can be seen in the original [paper]((https://arxiv.org/pdf/1805.07603.pdf) ).
+The details can be seen in the original [paper](https://arxiv.org/pdf/1805.07603.pdf).
 
 ## TODO LIST:
 - [x] EMDQN and DQN trigger
