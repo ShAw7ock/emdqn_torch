@@ -1,7 +1,6 @@
 import os
 import numpy as np
 import torch as th
-import wandb as wb
 from pathlib import Path
 from tensorboardX import SummaryWriter
 from collections import deque
@@ -31,9 +30,6 @@ def run(env, args):
     logger = SummaryWriter(str(log_dir))
     th.manual_seed(args.seed)
     np.random.seed(args.seed)
-
-    # WandB Logger
-    wb.init(project=f"chapter2_{env}_emdqn", config=args, entity="shaw7ock")
 
     if not args.use_cuda:
         th.set_num_threads(args.n_training_threads)
@@ -89,8 +85,6 @@ def run(env, args):
             print(f"\rEpisode {i_episode}\tFrame {frame} \tAverageScore: {np.mean(scores_window)}")
             logger.add_scalar("EpisodeReward", score, i_episode)
             logger.add_scalar("AverageReward", np.mean(scores_window), i_episode)
-            wb.log({"EpisodeReward": score}, step=i_episode)
-            wb.log({"AverageReward": np.mean(scores_window)}, step=i_episode)
             i_episode += 1
             obs = env.reset()
             score = 0.
