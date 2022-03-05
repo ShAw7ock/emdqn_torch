@@ -1,56 +1,60 @@
-import torch as th
 import numpy as np
-from utils.networks import MLPNetwork
+import torch as th
+from components.networks import QNetwork
+from utils.misc import hard_update, soft_update
 from utils.lru_knn import LRUKnn
 
 
-class EMDQN:
-    def __init__(self, obs_dim, num_actions, args):
-        self.obs_dim = obs_dim
-        self.n_actions = num_actions
+class Agent:
+    def __init__(self, state_size, action_size, args):
+        self.state_size = state_size
+        self.action_size = action_size
 
-        self.eval_mlp = MLPNetwork(obs_dim, num_actions, hidden_dims=args.hidden_dims)
-        self.trgt_mlp = MLPNetwork(obs_dim, num_actions, hidden_dims=args.hidden_dims)
+        self.qnet_eval = QNetwork(state_size, action_size,
+                                  hidden_sizes=args.hidden_sizes, layer_type=args.layer_type)
+        self.qnet_target = QNetwork(state_size, action_size,
+                                    hidden_sizes=args.hidden_sizes, layer_type=args.layer_type)
 
-        self.args = args
         if args.use_cuda and th.cuda.is_available():
             self.device = th.device("cuda:0")
-            self.eval_mlp.to(self.device)
-            self.trgt_mlp.to(self.device)
+            self.qnet_eval.to(self.device)
+            self.qnet_target.to(self.device)
         else:
             self.device = th.device("cpu")
 
-        self.trgt_mlp.load_state_dict(self.eval_mlp.state_dict())
-        self.eval_parameters = list(self.eval_mlp.parameters())
-        self.optimizer = th.optim.Adam(self.eval_parameters, lr=args.lr)
+        hard_update(self.qnet_target, self.qnet_eval)
+        self.parameters = list(self.qnet_eval.parameters())
+        self.optimizer = th.optim.Adam(self.parameters, lr=args.lr)
+
+        self.args = args
 
         # EMDQN
         if args.emdqn:
             self.ec_buffer = []
-            for i in range(self.n_actions):
+            for i in range(self.action_size):
                 self.ec_buffer.append(LRUKnn(args.ec_buffer_size, args.ec_latent_dim, env_name=args.env))
+            # random project method
             rng = np.random.RandomState(123456)
-            self.rp = rng.normal(loc=0, scale=1./np.sqrt(args.ec_latent_dim), size=(args.ec_latent_dim, obs_dim))
+            self.rp = rng.normal(loc=0, scale=1./np.sqrt(args.ec_latent_dim), size=(args.ec_latent_dim, 84 * 84 * 4))
             self.qec_watch = []
             self.update_counter = 0
             self.qec_found = 0
             self.sequence = []
 
-    def select_action(self, obs, epsilon):
-        inputs = obs.copy()
-        inputs = th.tensor(inputs, dtype=th.float32)
-        if self.args.use_cuda and th.cuda.is_available():
-            inputs = inputs.to(self.device)
-
-        q_value = self.eval_mlp(inputs)
+    def act(self, state, epsilon=0.):
         if np.random.uniform() < epsilon:
-            action = np.random.choice(self.n_actions)
+            action = np.random.choice(self.action_size)
         else:
-            action = th.argmax(q_value).item()      # return as INT action index
+            state = np.array(state)
+            state = th.tensor(state, dtype=th.float32).unsqueeze(0).to(self.device)
+            with th.no_grad():
+                action_values = self.qnet_eval(state)
+            action = np.argmax(action_values.cpu().data.numpy())
+
         return action
 
-    def add_sequence(self, obs, action, reward):
-        self.sequence.append([np.array(obs), action, reward])
+    def add_sequence(self, state, action, reward):
+        self.sequence.append([np.array(state), action, reward])
 
     def update_ec(self):
         mt_rew = 0.
@@ -66,56 +70,59 @@ class EMDQN:
         self.sequence = []
 
     def update_kdtree(self):
-        for u in range(self.n_actions):
+        for u in range(self.action_size):
             self.ec_buffer[u].update_kdtree()
 
-    def learn(self, batch: dict):
+    def train(self, batch):
         if self.args.emdqn:
             qec_inputs = self._get_qec_inputs(batch)
+
         for key in batch.keys():
             if key == 'u':
-                batch[key] = th.tensor(batch[key], dtype=th.long)
+                batch[key] = th.tensor(batch[key], dtype=th.long).to(self.device)
             else:
-                batch[key] = th.tensor(batch[key], dtype=th.float32)
+                batch[key] = th.tensor(batch[key], dtype=th.float32).to(self.device)
         o, u, o_next = batch['o'], batch['u'], batch['o_next']
         r, terminates = batch['r'], batch['terminates']
-        if self.args.use_cuda and th.cuda.is_available():
-            o = o.to(self.device)
-            u = u.to(self.device)
-            r = r.to(self.device)
-            o_next = o_next.to(self.device)
-            terminates = terminates.to(self.device)
 
-        q_values = self.eval_mlp(o)
-        q_targets = self.trgt_mlp(o_next)
+        q_values = self.qnet_eval(o)
+        q_targets = self.qnet_target(o_next)
 
         q_eval = th.gather(q_values, dim=1, index=u).squeeze(1)
-        q_trgt = th.max(q_targets, dim=1)[0]
+        if self.args.double_q:
+            q_targets_eval = self.qnet_eval(o_next)
+            trgt_eval_u = th.max(q_targets_eval, dim=1, keepdim=True)[1]
+            q_trgt = th.gather(q_targets, dim=1, index=trgt_eval_u).squeeze(1)
+        else:
+            q_trgt = th.max(q_targets, dim=1)[0]
         target = r + self.args.gamma * (1 - terminates) * q_trgt
 
         td_error = target.detach() - q_eval
         if self.args.emdqn:
-            qec_error = qec_inputs.detach() - q_eval
+            qec_error = qec_inputs - q_eval
             loss = td_error.pow(2).mean() + 0.1 * qec_error.pow(2).mean()
         else:
             loss = td_error.pow(2).mean()
 
         self.optimizer.zero_grad()
         loss.backward()
-        th.nn.utils.clip_grad_norm_(self.eval_parameters, self.args.grad_norm_clip)
+        th.nn.utils.clip_grad_norm_(self.parameters, self.args.grad_norm_clip)
         self.optimizer.step()
 
-    def _get_qec_inputs(self, batch: dict) -> th.Tensor:
+        soft_update(self.qnet_target, self.qnet_eval, self.args.tau)
+
+    def _get_qec_inputs(self, batch):
         self.update_counter += 1
         o_array, u_array = batch['o'], batch['u']
-        o_tensor, u_tensor = th.tensor(o_array, dtype=th.float32), th.tensor(u_array, dtype=th.long)
-        if self.args.use_cuda and th.cuda.is_available():
-            o_tensor = o_tensor.to(self.device)
-            u_tensor = u_tensor.to(self.device)
-        qec_values = self.eval_mlp(o_tensor)
+        o_tensor = th.tensor(o_array, dtype=th.float32).to(self.device)
+        u_tensor = th.tensor(u_array, dtype=th.long).to(self.device)
+
+        qec_values = self.qnet_eval(o_tensor)
         qec_selected = th.gather(qec_values, dim=1, index=u_tensor).squeeze(1)
-        qec_selected = np.array(qec_selected.detach()).reshape(self.args.batch_size)  # transfer to array for ec_buffer
-        u_array = np.squeeze(u_array, axis=1)   # u_array[i] can then an index
+        # transfer to array for ec_buffer
+        qec_selected = qec_selected.cpu().data.numpy().reshape(self.args.batch_size)
+        # u_array[i] can then an index
+        u_array = np.squeeze(u_array, axis=1)
         for i in range(self.args.batch_size):
             z = np.dot(self.rp, o_array[i].flatten())
             q = self.ec_buffer[u_array[i]].peek(z, None, modify=False)
@@ -129,26 +136,21 @@ class EMDQN:
             print("qec_fount: %.2f" % (1.0 * self.qec_found / self.args.batch_size / self.update_counter))
             # Clear
             self.qec_watch = []
-        qec_inputs = th.tensor(qec_selected, dtype=th.float32)
-        if self.args.use_cuda and th.cuda.is_available():
-            qec_inputs = qec_inputs.to(self.device)
+        qec_inputs = th.tensor(qec_selected, dtype=th.float32).to(self.device)
 
-        return qec_inputs     # shape: [batch_size]
-
-    def update_target(self):
-        self.trgt_mlp.load_state_dict(self.eval_mlp.state_dict())
+        return qec_inputs   # shape: [batch_size]
 
     def save(self, filename):
-        params_dict = {
-            "eval_mlp": self.eval_mlp.state_dict(),
+        param_dict = {
+            "qnet_eval": self.qnet_eval.state_dict(),
             "optimizer": self.optimizer.state_dict()
         }
-        th.save(params_dict, filename)
+        th.save(param_dict, filename)
 
     def load(self, filename):
         params_dict = th.load(filename)
         # Get parameters from save_dict
-        self.eval_mlp.load_state_dict(params_dict["eval_mlp"])
+        self.qnet_eval.load_state_dict(params_dict["qnet_eval"])
         self.optimizer.load_state_dict(params_dict["optimizer"])
         # Copy the eval networks to target networks
-        self.trgt_mlp.load_state_dict(self.eval_mlp.state_dict())
+        hard_update(self.qnet_target, self.qnet_eval)

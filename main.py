@@ -1,99 +1,112 @@
 import os
 import numpy as np
 import torch as th
-import gym
+import wandb as wb
 from pathlib import Path
-from core.emdqn import EMDQN
+from tensorboardX import SummaryWriter
+from collections import deque
+from core.emdqn import Agent
 from components.arguments import parse_args
 from components.replay_buffer import ReplayBuffer
+from utils import wrapper
 
 
-def run_train(env, args):
-    model_dir = Path('./models') / args.env
-    algo_name = "emdqn" if args.emdqn else "dqn"
+def run(env, args):
+    model_dir = Path('./models') / args.experiment / args.env
     if not model_dir.exists():
-        curr_run = "run1"
+        curr_run = 'run1'
     else:
-        exist_run_nums = [int(str(folder.name).split('run')[1]) for folder in model_dir.iterdir()
-                          if str(folder.name).startswith('run')]
-        if len(exist_run_nums) == 0:
+        exst_run_nums = [int(str(folder.name).split('run')[1]) for folder in model_dir.iterdir()
+                         if str(folder.name).startswith('run')]
+        if len(exst_run_nums) == 0:
             curr_run = 'run1'
         else:
-            curr_run = 'run%i' % (max(exist_run_nums) + 1)
+            curr_run = 'run%i' % (max(exst_run_nums) + 1)
 
-    run_dir = model_dir / algo_name / curr_run
+    run_dir = model_dir / curr_run
+    log_dir = run_dir / 'logs'
+    results_dir = run_dir / 'results'
+    os.makedirs(str(log_dir))
+    os.makedirs(str(results_dir))
+    logger = SummaryWriter(str(log_dir))
     th.manual_seed(args.seed)
     np.random.seed(args.seed)
+
+    # WandB Logger
+    wb.init(project=f"chapter2_{env}_emdqn", config=args, entity="shaw7ock")
+
     if not args.use_cuda:
         th.set_num_threads(args.n_training_threads)
 
     # Env infos (Discrete Action Space)
-    obs_shape = env.observation_space.shape[0]
-    num_actions = env.action_space.n
+    state_size = env.observation_space.shape
+    action_size = env.action_space.n
 
-    agent = EMDQN(obs_shape, num_actions, args)
+    agent = Agent(state_size, action_size, args)
     if args.load_dir is not None:
         agent.load(args.load_dir)
     buffer = ReplayBuffer(args.buffer_size)
 
     # Epsilon greedy
-    epsilon = 0 if args.evaluate and args.load_dir is not None else 1
-    min_epsilon = 0.05
+    epsilon = 0 if args.evaluate or args.layer_type == "noisy" else 1
+    min_epsilon = 0.01
     anneal_steps = 3000
     anneal_epsilon = (epsilon - min_epsilon) / anneal_steps
 
-    # Main Training Loop
+    # Main Loop
+    scores = []
+    scores_window = deque(maxlen=100)
+
+    i_episode = 0
     obs = env.reset()
-    iter_rew = 0.
-    for num_iter in range(args.n_iterations):
+    score = 0.
+    for frame in range(args.n_iterations):
         if args.display:
             env.render()
 
-        action = agent.select_action(obs, epsilon)
-        obs_next, reward, terminate, info = env.step(action)
-        # Refine the Reward for MountainCar-v0: the higher, the better
-        position, velocity = obs_next
-        reward = abs(position - (-0.5))
-        iter_rew += reward
+        action = agent.act(obs, epsilon)
+        obs_next, reward, done, info = env.step(action)
 
         # EMDQN
         if args.emdqn:
             agent.add_sequence(obs, action, reward)
-        buffer.add(obs, action, reward, obs_next, terminate)
+        buffer.add(obs, action, reward, obs_next, done)
         obs = obs_next
+        score += reward
         # Epsilon
         epsilon = epsilon - anneal_epsilon if epsilon > min_epsilon else epsilon
 
-        if terminate:
+        if frame % args.learning_freq == 0 and len(buffer) > 5 * args.batch_size:
+            samples = buffer.sample(args.batch_size)
+            agent.train(samples)
+
+        if done:
             # EMDQN
             if args.emdqn:
                 agent.update_ec()
+            scores_window.append(score)
+            scores.append(score)
+            print(f"\rEpisode {i_episode}\tFrame {frame} \tAverageScore: {np.mean(scores_window)}")
+            logger.add_scalar("EpisodeReward", score, i_episode)
+            logger.add_scalar("AverageReward", np.mean(scores_window), i_episode)
+            wb.log({"EpisodeReward": score}, step=i_episode)
+            wb.log({"AverageReward": np.mean(scores_window)}, step=i_episode)
+            i_episode += 1
             obs = env.reset()
-            print(f"Iteration: {num_iter} |-> Get! |-> Reward: {iter_rew}")
-            iter_rew = 0.
+            score = 0.
 
-        # if num_iter > max(5 * args.batch_size, args.buffer_size // 2000) and num_iter % args.learning_freq == 0:
-        if not args.evaluate and num_iter > 5 * args.batch_size and num_iter % args.learning_freq == 0:
-            samples = buffer.sample(args.batch_size)
-            agent.learn(samples)
-
-        if not args.evaluate and num_iter % args.target_update_freq == 100:
-            agent.update_target()
-            # EMDQN
+        if frame % args.target_update_freq == 10000:
+            os.makedirs(str(run_dir / 'incremental'), exist_ok=True)
+            agent.save(str(run_dir / 'incremental' / ('model_ep%i.pt' % i_episode)))
+            agent.save(str(run_dir / 'model.pt'))
             if args.emdqn:
                 agent.update_kdtree()
 
-        if not args.evaluate and num_iter % args.save_freq == 0:
-            os.makedirs(str(run_dir / 'incremental'), exist_ok=True)
-            agent.save(str(run_dir / 'incremental' / ('model_iter%i.pt' % (num_iter + 1))))
-            agent.save(str(run_dir / 'model.pt'))
-
-    agent.save(str(run_dir / 'model.pt'))
     env.close()
 
 
 if __name__ == "__main__":
     args = parse_args()
-    env = gym.make(args.env)
-    env = env.unwrapped
-    run_train(env, args)
+    env = wrapper.make_env(args.env)
+    run(env, args)
+

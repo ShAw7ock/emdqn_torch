@@ -16,21 +16,21 @@ The users can modify the code to suit your own testing environments (`DISCREATE 
 ## Requirements:
 * Python >= 3.6.0 (optional)
 * PyTorch == 1.7.0 (optional)
-* OpenAI Gym == 0.10.5 (optional)
+* OpenAI Gym[Atari]
 * Scikit-Learn == 1.0.2 (optional)
 
 ## NOTE:
-* To run this code, `cd` into the root directory and run : `python main.py --env MountainCar-v0`
+* To run this code, `cd` into the root directory and run : `python main.py --env PongNoFrameskip-v4`
 * The kernel updating codes for EMDQN algorithm: `./core/emdqn.py`
 * The Episodic Memory using LRU_KNN: `./utils/lru_knn.py`
 * The off-policy replay buffer: `./components/replay_buffer.py`
+* The networks include base Q network and Dueling Q network: `./components/networks.py`
 * The Hyper-parameters can be modified in: `./components/arguments.py`
-* I only give a simple env to test the performance. I suggest a refined set of parameters when using the code.
 The details can be seen in the original [paper](https://arxiv.org/pdf/1805.07603.pdf).
 
 ## TODO LIST:
-- [x] EMDQN and DQN trigger
+- [x] DQN, DuelingDQN, EMDQN
 - [x] Save and Load Pre-Trained Models.
 - [ ] CUDA supported.
-- [ ] Modify and Suit Atari Games.
+- [x] Modify and Suit Atari Games.
 - [ ] Modify Prioritized ReplayBuffer.

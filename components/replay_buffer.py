@@ -19,8 +19,8 @@ class ReplayBuffer:
     def __len__(self):
         return len(self._storage)
 
-    def add(self, obs_t, action, reward, obs_next, terminate):
-        data = (obs_t, action, reward, obs_next, terminate)
+    def add(self, obs, action, reward, obs_next, done):
+        data = (obs, action, reward, obs_next, done)
 
         if self._next_idx >= len(self._storage):
             self._storage.append(data)
@@ -32,19 +32,20 @@ class ReplayBuffer:
         o, u, r, o_next, terminates = [], [], [], [], []
         for i in idxes:
             data = self._storage[i]
-            obs_t, action, reward, obs_tp, done = data
-            o.append(np.array(obs_t, copy=False))
+            obs, action, reward, obs_next, done = data
+            o.append(np.array(obs, copy=False))
             u.append(np.array([action], copy=False))
             r.append(reward)
-            o_next.append(np.array(obs_tp, copy=False))
+            o_next.append(np.array(obs_next, copy=False))
             terminates.append(done)
 
-        samples = dict(o=o.copy(),
-                       u=u.copy(),
-                       r=r.copy(),
-                       o_next=o_next.copy(),
-                       terminates=terminates.copy()
-                       )
+        samples = dict(
+            o=o.copy(),
+            u=u.copy(),
+            r=r.copy(),
+            o_next=o_next.copy(),
+            terminates=terminates.copy()
+        )
         for key in samples.keys():
             samples[key] = np.array(samples[key])
 
@@ -52,17 +53,22 @@ class ReplayBuffer:
 
     def sample(self, batch_size):
         """Sample a batch of experiences.
+        Parameters
+        ----------
+        batch_size: int
+            How many transitions to sample.
         Returns
         -------
-        o: np.array [batch_size, obs_shape]
+        obs_batch: np.array
             batch of observations
-        u: np.array [batch_size, action_dim (1)]
-            batch of actions executed given obs
-        r: np.array [batch_size,]
-            rewards received as results of executing action
-        o_next: np.array [batch_size, obs_shape]
-            next set of observations seen after executing action
-        terminates: np.array [batch_size,]
+        act_batch: np.array
+            batch of actions executed given obs_batch
+        rew_batch: np.array
+            rewards received as results of executing act_batch
+        next_obs_batch: np.array
+            next set of observations seen after executing act_batch
+        done_mask: np.array
+            done_mask[i] = 1 if executing act_batch[i] resulted in
             the end of an episode and 0 otherwise.
         """
         idxes = [random.randint(0, len(self._storage) - 1) for _ in range(batch_size)]
