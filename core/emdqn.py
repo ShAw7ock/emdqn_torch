@@ -1,6 +1,6 @@
 import numpy as np
 import torch as th
-from components.networks import QNetwork
+from components.networks import QNetwork, DuelingQNetwork
 from utils.misc import hard_update, soft_update
 from utils.lru_knn import LRUKnn
 
@@ -10,10 +10,17 @@ class Agent:
         self.state_size = state_size
         self.action_size = action_size
 
-        self.qnet_eval = QNetwork(state_size, action_size,
-                                  hidden_sizes=args.hidden_sizes, layer_type=args.layer_type)
-        self.qnet_target = QNetwork(state_size, action_size,
-                                    hidden_sizes=args.hidden_sizes, layer_type=args.layer_type)
+        if args.dueling == 'dueling':
+            self.qnet_eval = DuelingQNetwork(state_size, action_size,
+                                             hidden_sizes=args.hidden_sizes, layer_type=args.layer_type)
+            self.qnet_target = DuelingQNetwork(state_size, action_size,
+                                               hidden_sizes=args.hidden_sizes, layer_type=args.layer_type)
+        else:
+            self.qnet_eval = QNetwork(state_size, action_size,
+                                      hidden_sizes=args.hidden_sizes, layer_type=args.layer_type)
+            self.qnet_target = QNetwork(state_size, action_size,
+                                        hidden_sizes=args.hidden_sizes, layer_type=args.layer_type)
+        print(f"Init {args.dueling}")
 
         if args.use_cuda and th.cuda.is_available():
             self.device = th.device("cuda:0")
