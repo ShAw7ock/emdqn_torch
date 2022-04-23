@@ -15,11 +15,13 @@ class Agent:
                                              hidden_sizes=args.hidden_sizes, layer_type=args.layer_type)
             self.qnet_target = DuelingQNetwork(state_size, action_size,
                                                hidden_sizes=args.hidden_sizes, layer_type=args.layer_type)
-        else:
+        elif args.dueling == 'dqn':
             self.qnet_eval = QNetwork(state_size, action_size,
                                       hidden_sizes=args.hidden_sizes, layer_type=args.layer_type)
             self.qnet_target = QNetwork(state_size, action_size,
                                         hidden_sizes=args.hidden_sizes, layer_type=args.layer_type)
+        else:
+            raise ValueError(f"Unknown Network type {args.dueling}")
         print(f"Init {args.dueling}")
 
         if args.use_cuda and th.cuda.is_available():
