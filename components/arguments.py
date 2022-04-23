@@ -11,7 +11,7 @@ def parse_args():
     parser.add_argument("--hidden_sizes", type=int, default=512, help="hidden dimensions for MLP networks")
     parser.add_argument("--layer_type", type=str, default="ff", choices=['ff', 'noisy'])
     parser.add_argument("--buffer_size", type=int, default=int(1e6), help="replay buffer size")
-    parser.add_argument("--lr", type=float, default=0.00025, help="learning rate for Adam optimizer")
+    parser.add_argument("--lr", type=float, default=1e-4, help="learning rate for Adam optimizer")
     parser.add_argument("--gamma", type=float, default=0.99, help="discounted factor")
     parser.add_argument("--tau", type=float, default=1e-3)
     parser.add_argument("--grad_norm_clip", type=float, default=10, help="gradient normalization")
@@ -24,7 +24,7 @@ def parse_args():
 
     parser.add_argument("--n_iterations", type=int, default=int(400000), help="total number of training iterations")
     parser.add_argument("--batch_size", type=int, default=32, help="number of transitions to optimize at the same time")
-    parser.add_argument("--learning_freq", type=int, default=1,
+    parser.add_argument("--learning_freq", type=int, default=4,
                         help="number of iterations between every optimization step")
     parser.add_argument("--target_update_freq", type=int, default=40000,
                         help="number of iterations between every target network update")
