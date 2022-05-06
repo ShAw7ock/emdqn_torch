@@ -15,16 +15,15 @@ def parse_args():
     parser.add_argument("--gamma", type=float, default=0.99, help="discounted factor")
     parser.add_argument("--tau", type=float, default=1e-3)
     parser.add_argument("--grad_norm_clip", type=float, default=10, help="gradient normalization")
-    parser.add_argument("--dueling", type=str, default="dueling", help="whether dueling")
+    parser.add_argument("--dueling", type=bool, default=False, help="whether dueling dqn")
     parser.add_argument("--double_q", type=bool, default=False, help="double Q learning trick")
     parser.add_argument("--use_cuda", type=bool, default=True, help="put model/tensor to train on the CUDA")
     parser.add_argument("--display", type=bool, default=False, help="Display the rendered figures")
-    parser.add_argument("--evaluate", type=bool, default=False, help="Evaluate a saved model")
     parser.add_argument("--n_training_threads", type=int, default=4, help="The training resources supplied by CPU")
 
     parser.add_argument("--n_iterations", type=int, default=int(400000), help="total number of training iterations")
     parser.add_argument("--batch_size", type=int, default=32, help="number of transitions to optimize at the same time")
-    parser.add_argument("--learning_freq", type=int, default=4,
+    parser.add_argument("--learning_freq", type=int, default=1,
                         help="number of iterations between every optimization step")
     parser.add_argument("--target_update_freq", type=int, default=40000,
                         help="number of iterations between every target network update")

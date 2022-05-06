@@ -45,7 +45,7 @@ def run(env, args):
     buffer = ReplayBuffer(args.buffer_size)
 
     # Epsilon greedy
-    epsilon = 0 if args.evaluate or args.layer_type == "noisy" else 1
+    epsilon = 0 if args.load_dir is not None or args.layer_type == "noisy" else 1
     min_epsilon = 0.01
     anneal_steps = 3000
     anneal_epsilon = (epsilon - min_epsilon) / anneal_steps
